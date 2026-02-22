@@ -122,7 +122,11 @@ mod tests {
     use std::fs;
 
     fn make_temp_dir(prefix: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("claude-reviews-test-{}-{}", prefix, std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "claude-reviews-test-{}-{}",
+            prefix,
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -147,10 +151,7 @@ mod tests {
     fn partial_config_merges_with_defaults() {
         let tmp = make_temp_dir("config-partial");
         fs::create_dir_all(tmp.join(".git")).unwrap();
-        fs::write(
-            tmp.join(CONFIG_FILE),
-            r#"{"tools": {"knip": false}}"#,
-        ).unwrap();
+        fs::write(tmp.join(CONFIG_FILE), r#"{"tools": {"knip": false}}"#).unwrap();
 
         let config = Config::load(&tmp);
         assert!(config.enabled);
@@ -166,10 +167,7 @@ mod tests {
     fn enabled_false_disables_all() {
         let tmp = make_temp_dir("config-disabled");
         fs::create_dir_all(tmp.join(".git")).unwrap();
-        fs::write(
-            tmp.join(CONFIG_FILE),
-            r#"{"enabled": false}"#,
-        ).unwrap();
+        fs::write(tmp.join(CONFIG_FILE), r#"{"enabled": false}"#).unwrap();
 
         let config = Config::load(&tmp);
         assert!(!config.enabled);

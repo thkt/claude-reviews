@@ -62,7 +62,11 @@ mod tests {
     use std::fs;
 
     fn make_temp_dir(prefix: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("claude-reviews-test-{}-{}", prefix, std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "claude-reviews-test-{}-{}",
+            prefix,
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -98,7 +102,8 @@ mod tests {
         fs::write(
             tmp.join("package.json"),
             r#"{"dependencies": {"react": "^19.0.0"}}"#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let info = ProjectInfo::detect(&tmp);
         assert!(info.has_react);
@@ -113,7 +118,8 @@ mod tests {
         fs::write(
             tmp.join("package.json"),
             r#"{"devDependencies": {"react": "^19.0.0"}}"#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let info = ProjectInfo::detect(&tmp);
         assert!(info.has_react);
@@ -128,7 +134,8 @@ mod tests {
         fs::write(
             tmp.join("package.json"),
             r#"{"dependencies": {"vue": "^3.0.0"}}"#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let info = ProjectInfo::detect(&tmp);
         assert!(!info.has_react);
@@ -143,7 +150,8 @@ mod tests {
         fs::write(
             tmp.join("package.json"),
             r#"{"peerDependencies": {"react": ">=18"}}"#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let info = ProjectInfo::detect(&tmp);
         assert!(info.has_react);

@@ -40,7 +40,10 @@ fn build_output(results: &[tools::ToolResult]) -> Option<String> {
 
     let mut context = String::from("# Pre-flight Analysis Results\n\n");
     for result in &successful {
-        context.push_str(&format!("## {}\n\n```\n{}\n```\n\n", result.name, result.output));
+        context.push_str(&format!(
+            "## {}\n\n```\n{}\n```\n\n",
+            result.name, result.output
+        ));
     }
 
     let output = serde_json::json!({
@@ -54,7 +57,10 @@ fn build_output(results: &[tools::ToolResult]) -> Option<String> {
 
 fn main() {
     let mut input_str = String::new();
-    let bytes_read = match io::stdin().take(MAX_INPUT_SIZE as u64).read_to_string(&mut input_str) {
+    let bytes_read = match io::stdin()
+        .take(MAX_INPUT_SIZE as u64)
+        .read_to_string(&mut input_str)
+    {
         Ok(n) => n,
         Err(e) => {
             eprintln!("reviews: stdin read error: {}", e);
@@ -63,7 +69,10 @@ fn main() {
     };
 
     if bytes_read == MAX_INPUT_SIZE {
-        eprintln!("reviews: error: input too large (>={}B limit)", MAX_INPUT_SIZE);
+        eprintln!(
+            "reviews: error: input too large (>={}B limit)",
+            MAX_INPUT_SIZE
+        );
         return;
     }
 
@@ -104,7 +113,11 @@ fn run_tools_parallel(
         (config.tools.knip, "knip", tools::knip::run),
         (config.tools.oxlint, "oxlint", tools::oxlint::run),
         (config.tools.tsgo, "tsgo", tools::tsgo::run),
-        (config.tools.react_doctor, "react-doctor", tools::react_doctor::run),
+        (
+            config.tools.react_doctor,
+            "react-doctor",
+            tools::react_doctor::run,
+        ),
     ];
 
     let handles: Vec<_> = runners
@@ -157,17 +170,34 @@ mod tests {
 
     #[test]
     fn parse_audit_skill_with_args() {
-        let input = r#"{"tool_name": "Skill", "tool_input": {"skill": "audit", "args": "--verbose"}}"#;
+        let input =
+            r#"{"tool_name": "Skill", "tool_input": {"skill": "audit", "args": "--verbose"}}"#;
         assert!(parse_audit_skill(input).is_some());
     }
 
     #[test]
     fn build_output_partial_success() {
         let results = vec![
-            tools::ToolResult { name: "knip", output: "result1".into(), success: true },
-            tools::ToolResult { name: "oxlint", output: "result2".into(), success: true },
-            tools::ToolResult { name: "tsgo", output: "result3".into(), success: true },
-            tools::ToolResult { name: "react-doctor", output: String::new(), success: false },
+            tools::ToolResult {
+                name: "knip",
+                output: "result1".into(),
+                success: true,
+            },
+            tools::ToolResult {
+                name: "oxlint",
+                output: "result2".into(),
+                success: true,
+            },
+            tools::ToolResult {
+                name: "tsgo",
+                output: "result3".into(),
+                success: true,
+            },
+            tools::ToolResult {
+                name: "react-doctor",
+                output: String::new(),
+                success: false,
+            },
         ];
         let json = build_output(&results).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -182,8 +212,16 @@ mod tests {
     #[test]
     fn build_output_no_results() {
         let results = vec![
-            tools::ToolResult { name: "knip", output: String::new(), success: false },
-            tools::ToolResult { name: "oxlint", output: String::new(), success: false },
+            tools::ToolResult {
+                name: "knip",
+                output: String::new(),
+                success: false,
+            },
+            tools::ToolResult {
+                name: "oxlint",
+                output: String::new(),
+                success: false,
+            },
         ];
         assert!(build_output(&results).is_none());
     }
@@ -196,8 +234,16 @@ mod tests {
     #[test]
     fn build_output_excludes_successful_but_empty() {
         let results = vec![
-            tools::ToolResult { name: "knip", output: String::new(), success: true },
-            tools::ToolResult { name: "oxlint", output: "issues".into(), success: true },
+            tools::ToolResult {
+                name: "knip",
+                output: String::new(),
+                success: true,
+            },
+            tools::ToolResult {
+                name: "oxlint",
+                output: "issues".into(),
+                success: true,
+            },
         ];
         let json = build_output(&results).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();

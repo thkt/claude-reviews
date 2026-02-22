@@ -1,10 +1,8 @@
-use std::sync::LazyLock;
 use regex::Regex;
+use std::sync::LazyLock;
 
-static ANSI_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap());
-static MULTI_BLANK: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\n{3,}").unwrap());
+static ANSI_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap());
+static MULTI_BLANK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\n{3,}").unwrap());
 
 pub fn sanitize(input: &str) -> String {
     let s = ANSI_RE.replace_all(input, "");

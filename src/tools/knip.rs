@@ -1,6 +1,6 @@
+use super::{ToolResult, combine_output};
 use crate::project::ProjectInfo;
 use crate::resolve;
-use super::{ToolResult, combine_output};
 use std::process::Command;
 
 pub fn run(project: &ProjectInfo) -> ToolResult {

@@ -3,8 +3,8 @@ pub mod oxlint;
 pub mod react_doctor;
 pub mod tsgo;
 
-use std::process::Output;
 use crate::sanitize;
+use std::process::Output;
 
 #[derive(Debug)]
 pub struct ToolResult {
