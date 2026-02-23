@@ -1,5 +1,7 @@
 # claude-reviews
 
+English | [日本語](README.ja.md)
+
 A [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that runs static analysis tools before `/audit` and feeds the results to the audit agent as context. Instead of the agent scanning code manually, it gets real linter output, type errors, and test results upfront.
 
 ## How it works
