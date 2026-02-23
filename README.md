@@ -1,13 +1,13 @@
 # claude-reviews
 
-Pre-flight static analysis hook for Claude Code's `/audit` command. Runs knip, oxlint, tsgo, and react-doctor in parallel and injects results as `additionalContext`.
+Pre-flight static analysis hook for Claude Code's `/audit` command. Runs JS/TS tools (knip, oxlint, tsgo, react-doctor) and Rust tools (clippy, cargo check, cargo test, cargo-audit, cargo-machete) in parallel and injects results as `additionalContext`.
 
 ## Features
 
 - **Parallel execution**: All tools run simultaneously via OS threads
 - **Fail-open design**: Errors never block the parent `/audit` command
-- **Auto-detection**: Only runs tools relevant to the project (package.json, tsconfig.json, React)
-- **Binary resolution**: Finds tools in `node_modules/.bin` with `.git` boundary
+- **Auto-detection**: Only runs tools relevant to the project (package.json, tsconfig.json, React, Cargo.toml)
+- **Binary resolution**: Finds JS/TS tools in `node_modules/.bin` with `.git` boundary
 
 ## Installation
 
@@ -70,6 +70,8 @@ When `/audit` is invoked, the hook:
 
 ## Tools
 
+### JS/TS
+
 | Tool                                                           | Condition              | Arguments                        |
 | -------------------------------------------------------------- | ---------------------- | -------------------------------- |
 | [knip](https://knip.dev)                                       | `package.json` exists  | `--reporter json --no-exit-code` |
@@ -77,7 +79,21 @@ When `/audit` is invoked, the hook:
 | [tsgo](https://github.com/nicolo-ribaudo/tsgo)                 | `tsconfig.json` exists | `--noEmit`                       |
 | [react-doctor](https://github.com/nicolo-ribaudo/react-doctor) | React in dependencies  | `. --verbose`                    |
 
-Tools are resolved from `node_modules/.bin` first, falling back to `$PATH`. If a tool is not installed, it is silently skipped.
+JS/TS tools are resolved from `node_modules/.bin` first, falling back to `$PATH`.
+
+### Rust
+
+| Tool                                                     | Condition                       | Arguments                                         |
+| -------------------------------------------------------- | ------------------------------- | ------------------------------------------------- |
+| [clippy](https://doc.rust-lang.org/clippy/)              | `Cargo.toml` exists             | `clippy --message-format=short -- -W clippy::all` |
+| cargo check                                              | `Cargo.toml` exists             | `check --message-format=short`                    |
+| cargo test                                               | `Cargo.toml` exists             | `test --no-fail-fast`                             |
+| [cargo-audit](https://rustsec.org)                       | `Cargo.toml` exists + installed | `audit`                                           |
+| [cargo-machete](https://github.com/bnjbvr/cargo-machete) | `Cargo.toml` exists + installed | `machete`                                         |
+
+cargo-audit and cargo-machete require separate installation (`cargo install cargo-audit cargo-machete`).
+
+If a tool is not installed, it is silently skipped.
 
 ## Configuration
 
@@ -92,7 +108,12 @@ Place `.claude-reviews.json` at your project root (next to `.git/`). All fields 
     "knip": true,
     "oxlint": true,
     "tsgo": true,
-    "react_doctor": true
+    "react_doctor": true,
+    "clippy": true,
+    "cargoCheck": true,
+    "cargoTest": true,
+    "audit": true,
+    "machete": true
   }
 }
 ```

@@ -10,3 +10,23 @@ pub fn run(project: &ProjectInfo) -> ToolResult {
     let bin = resolve::resolve_bin("oxlint", &project.root);
     super::run_js_command("oxlint", &bin, &["--format", "json", "."], project)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn skips_without_package_json() {
+        let info = ProjectInfo {
+            root: PathBuf::from("/tmp/nonexistent"),
+            has_package_json: false,
+            has_tsconfig: false,
+            has_react: false,
+            has_cargo_toml: false,
+        };
+        let result = run(&info);
+        assert!(!result.success);
+        assert!(result.output.is_empty());
+    }
+}

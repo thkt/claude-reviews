@@ -2,7 +2,6 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 const CONFIG_FILE: &str = ".claude-reviews.json";
-const MAX_TRAVERSAL_DEPTH: usize = 20;
 
 macro_rules! define_tools {
     ($($field:ident $(=> $rename:literal)?),+ $(,)?) => {
@@ -76,23 +75,10 @@ impl Config {
     }
 
     fn find_config(start: &Path) -> Option<PathBuf> {
-        let mut dir = Some(start.to_path_buf());
-        let mut depth = 0;
-        while let Some(d) = dir {
-            if depth >= MAX_TRAVERSAL_DEPTH {
-                break;
-            }
-            let candidate = d.join(CONFIG_FILE);
-            if candidate.exists() {
-                return Some(candidate);
-            }
-            if d.join(".git").exists() {
-                break;
-            }
-            dir = d.parent().map(|p| p.to_path_buf());
-            depth += 1;
-        }
-        None
+        crate::traverse::walk_ancestors(start, |dir| {
+            let candidate = dir.join(CONFIG_FILE);
+            candidate.exists().then_some(candidate)
+        })
     }
 
     fn load_from(path: &Path, default: Config) -> Config {
@@ -127,12 +113,12 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::make_temp_dir;
+    use crate::test_utils::TempDir;
     use std::fs;
 
     #[test]
     fn default_config_all_tools_enabled() {
-        let tmp = make_temp_dir("config-default");
+        let tmp = TempDir::new("config-default");
         fs::create_dir_all(tmp.join(".git")).unwrap();
 
         let config = Config::load(&tmp);
@@ -146,13 +132,11 @@ mod tests {
         assert!(config.tools.cargo_test);
         assert!(config.tools.audit);
         assert!(config.tools.machete);
-
-        fs::remove_dir_all(&tmp).unwrap();
     }
 
     #[test]
     fn partial_config_merges_with_defaults() {
-        let tmp = make_temp_dir("config-partial");
+        let tmp = TempDir::new("config-partial");
         fs::create_dir_all(tmp.join(".git")).unwrap();
         fs::write(tmp.join(CONFIG_FILE), r#"{"tools": {"knip": false}}"#).unwrap();
 
@@ -162,38 +146,32 @@ mod tests {
         assert!(config.tools.oxlint);
         assert!(config.tools.tsgo);
         assert!(config.tools.react_doctor);
-
-        fs::remove_dir_all(&tmp).unwrap();
     }
 
     #[test]
     fn enabled_false_disables_all() {
-        let tmp = make_temp_dir("config-disabled");
+        let tmp = TempDir::new("config-disabled");
         fs::create_dir_all(tmp.join(".git")).unwrap();
         fs::write(tmp.join(CONFIG_FILE), r#"{"enabled": false}"#).unwrap();
 
         let config = Config::load(&tmp);
         assert!(!config.enabled);
-
-        fs::remove_dir_all(&tmp).unwrap();
     }
 
     #[test]
     fn invalid_json_falls_back_to_default() {
-        let tmp = make_temp_dir("config-invalid");
+        let tmp = TempDir::new("config-invalid");
         fs::create_dir_all(tmp.join(".git")).unwrap();
         fs::write(tmp.join(CONFIG_FILE), "not valid json{{{").unwrap();
 
         let config = Config::load(&tmp);
         assert!(config.enabled);
         assert!(config.tools.knip);
-
-        fs::remove_dir_all(&tmp).unwrap();
     }
 
     #[test]
     fn finds_config_in_parent_directory() {
-        let tmp = make_temp_dir("config-parent");
+        let tmp = TempDir::new("config-parent");
         fs::create_dir_all(tmp.join(".git")).unwrap();
         fs::write(tmp.join(CONFIG_FILE), r#"{"tools": {"knip": false}}"#).unwrap();
         let subdir = tmp.join("src").join("components");
@@ -201,7 +179,5 @@ mod tests {
 
         let config = Config::load(&subdir);
         assert!(!config.tools.knip);
-
-        fs::remove_dir_all(&tmp).unwrap();
     }
 }

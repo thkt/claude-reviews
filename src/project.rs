@@ -1,7 +1,5 @@
 use std::path::{Path, PathBuf};
 
-const MAX_TRAVERSAL_DEPTH: usize = 20;
-
 #[derive(Debug, Clone)]
 pub struct ProjectInfo {
     pub root: PathBuf,
@@ -29,19 +27,10 @@ impl ProjectInfo {
     }
 
     fn find_root(start: &Path) -> PathBuf {
-        let mut dir = Some(start.to_path_buf());
-        let mut depth = 0;
-        while let Some(d) = dir {
-            if depth >= MAX_TRAVERSAL_DEPTH {
-                break;
-            }
-            if d.join(".git").exists() {
-                return d;
-            }
-            dir = d.parent().map(|p| p.to_path_buf());
-            depth += 1;
-        }
-        start.to_path_buf()
+        crate::traverse::walk_ancestors(start, |dir| {
+            dir.join(".git").exists().then(|| dir.to_path_buf())
+        })
+        .unwrap_or_else(|| start.to_path_buf())
     }
 
     fn detect_react(root: &Path) -> bool {
@@ -69,35 +58,31 @@ impl ProjectInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::make_temp_dir;
+    use crate::test_utils::TempDir;
     use std::fs;
 
     #[test]
     fn detects_package_json() {
-        let tmp = make_temp_dir("project-pkg");
+        let tmp = TempDir::new("project-pkg");
         fs::create_dir_all(tmp.join(".git")).unwrap();
         fs::write(tmp.join("package.json"), "{}").unwrap();
 
         let info = ProjectInfo::detect(&tmp);
         assert!(info.has_package_json);
-
-        fs::remove_dir_all(&tmp).unwrap();
     }
 
     #[test]
     fn no_package_json() {
-        let tmp = make_temp_dir("project-nopkg");
+        let tmp = TempDir::new("project-nopkg");
         fs::create_dir_all(tmp.join(".git")).unwrap();
 
         let info = ProjectInfo::detect(&tmp);
         assert!(!info.has_package_json);
-
-        fs::remove_dir_all(&tmp).unwrap();
     }
 
     #[test]
     fn detects_react_dependency() {
-        let tmp = make_temp_dir("project-react");
+        let tmp = TempDir::new("project-react");
         fs::create_dir_all(tmp.join(".git")).unwrap();
         fs::write(
             tmp.join("package.json"),
@@ -107,13 +92,11 @@ mod tests {
 
         let info = ProjectInfo::detect(&tmp);
         assert!(info.has_react);
-
-        fs::remove_dir_all(&tmp).unwrap();
     }
 
     #[test]
     fn detects_react_in_dev_dependencies() {
-        let tmp = make_temp_dir("project-react-dev");
+        let tmp = TempDir::new("project-react-dev");
         fs::create_dir_all(tmp.join(".git")).unwrap();
         fs::write(
             tmp.join("package.json"),
@@ -123,13 +106,11 @@ mod tests {
 
         let info = ProjectInfo::detect(&tmp);
         assert!(info.has_react);
-
-        fs::remove_dir_all(&tmp).unwrap();
     }
 
     #[test]
     fn no_react_dependency() {
-        let tmp = make_temp_dir("project-noreact");
+        let tmp = TempDir::new("project-noreact");
         fs::create_dir_all(tmp.join(".git")).unwrap();
         fs::write(
             tmp.join("package.json"),
@@ -139,13 +120,11 @@ mod tests {
 
         let info = ProjectInfo::detect(&tmp);
         assert!(!info.has_react);
-
-        fs::remove_dir_all(&tmp).unwrap();
     }
 
     #[test]
     fn detects_react_in_peer_dependencies() {
-        let tmp = make_temp_dir("project-react-peer");
+        let tmp = TempDir::new("project-react-peer");
         fs::create_dir_all(tmp.join(".git")).unwrap();
         fs::write(
             tmp.join("package.json"),
@@ -155,13 +134,11 @@ mod tests {
 
         let info = ProjectInfo::detect(&tmp);
         assert!(info.has_react);
-
-        fs::remove_dir_all(&tmp).unwrap();
     }
 
     #[test]
     fn detects_cargo_toml() {
-        let tmp = make_temp_dir("project-cargo");
+        let tmp = TempDir::new("project-cargo");
         fs::create_dir_all(tmp.join(".git")).unwrap();
         fs::write(
             tmp.join("Cargo.toml"),
@@ -171,30 +148,24 @@ mod tests {
 
         let info = ProjectInfo::detect(&tmp);
         assert!(info.has_cargo_toml);
-
-        fs::remove_dir_all(&tmp).unwrap();
     }
 
     #[test]
     fn no_cargo_toml() {
-        let tmp = make_temp_dir("project-nocargo");
+        let tmp = TempDir::new("project-nocargo");
         fs::create_dir_all(tmp.join(".git")).unwrap();
 
         let info = ProjectInfo::detect(&tmp);
         assert!(!info.has_cargo_toml);
-
-        fs::remove_dir_all(&tmp).unwrap();
     }
 
     #[test]
     fn malformed_package_json_no_react() {
-        let tmp = make_temp_dir("project-malformed-pkg");
+        let tmp = TempDir::new("project-malformed-pkg");
         fs::create_dir_all(tmp.join(".git")).unwrap();
         fs::write(tmp.join("package.json"), "not valid json").unwrap();
 
         let info = ProjectInfo::detect(&tmp);
         assert!(!info.has_react);
-
-        fs::remove_dir_all(&tmp).unwrap();
     }
 }

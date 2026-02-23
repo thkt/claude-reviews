@@ -5,6 +5,7 @@ mod sanitize;
 #[cfg(test)]
 mod test_utils;
 mod tools;
+mod traverse;
 
 use serde::Deserialize;
 use std::io::{self, Read};
@@ -35,7 +36,7 @@ fn build_output(results: &[tools::ToolResult]) -> Option<String> {
 
     let reported: Vec<_> = results
         .iter()
-        .filter(|r| r.success && !r.output.is_empty())
+        .filter(|r| !r.output.is_empty())
         .collect();
 
     let mut context = String::from("# Pre-flight Analysis Results\n\n");
@@ -47,9 +48,24 @@ fn build_output(results: &[tools::ToolResult]) -> Option<String> {
     }
 
     // Advisory-only: always approve, inject tool output as context
+    let with_issues = reported.iter().filter(|r| !r.success).count();
+    let reason = if with_issues > 0 {
+        format!(
+            "Pre-flight: {}/{} tools reported ({} with issues)",
+            reported.len(),
+            results.len(),
+            with_issues
+        )
+    } else {
+        format!(
+            "Pre-flight: {}/{} tools reported",
+            reported.len(),
+            results.len()
+        )
+    };
     let output = serde_json::json!({
         "decision": "approve",
-        "reason": format!("Pre-flight: {}/{} tools reported", reported.len(), results.len()),
+        "reason": reason,
         "additionalContext": context.trim_end()
     });
 
@@ -248,6 +264,30 @@ mod tests {
     #[test]
     fn build_output_empty_slice() {
         assert!(build_output(&[]).is_none());
+    }
+
+    #[test]
+    fn build_output_includes_failed_with_output() {
+        let results = vec![
+            tools::ToolResult {
+                name: "clippy",
+                output: "warning: unused variable".into(),
+                success: false,
+            },
+            tools::ToolResult {
+                name: "test",
+                output: String::new(),
+                success: false,
+            },
+        ];
+        let json = build_output(&results).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let reason = parsed["reason"].as_str().unwrap();
+        assert!(reason.contains("1/2"));
+        assert!(reason.contains("1 with issues"));
+        let ctx = parsed["additionalContext"].as_str().unwrap();
+        assert!(ctx.contains("clippy"));
+        assert!(ctx.contains("warning: unused variable"));
     }
 
     #[test]

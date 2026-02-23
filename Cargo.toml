@@ -2,6 +2,9 @@
 name = "claude-reviews"
 version = "0.1.0"
 edition = "2024"
+description = "Claude Code PreToolUse hook for parallel static analysis"
+license = "MIT"
+repository = "https://github.com/thkt/claude-reviews"
 
 [[bin]]
 name = "reviews"
