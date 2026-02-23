@@ -14,7 +14,7 @@ use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
 const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
-const MAX_OUTPUT_SIZE: usize = 102_400; // 100KB
+const MAX_OUTPUT_SIZE: usize = 102_400;
 
 #[derive(Debug)]
 pub struct ToolResult {
