@@ -1,0 +1,38 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/Users/thkt/GitHub/claude-guardrails-rust/target/release/guardrails-rust",
+            "timeout": 1000,
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit|MultiEdit"
+      },
+      {
+        "hooks": [
+          {
+            "command": "/Users/thkt/GitHub/claude-reviews-rust/target/release/reviews-rust",
+            "timeout": 45000,
+            "type": "command"
+          }
+        ],
+        "matcher": "Skill"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/Users/thkt/GitHub/claude-formatter-rust/target/release/formatter-rust",
+            "timeout": 2000,
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit|MultiEdit"
+      }
+    ]
+  }
+}
