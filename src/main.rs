@@ -38,9 +38,6 @@ fn build_output(results: &[tools::ToolResult]) -> Option<String> {
         .filter(|r| r.success && !r.output.is_empty())
         .collect();
 
-    let total = results.len();
-    let count = reported.len();
-
     let mut context = String::from("# Pre-flight Analysis Results\n\n");
     for result in &reported {
         context.push_str(&format!(
@@ -52,7 +49,7 @@ fn build_output(results: &[tools::ToolResult]) -> Option<String> {
     // Advisory-only: always approve, inject tool output as context
     let output = serde_json::json!({
         "decision": "approve",
-        "reason": format!("Pre-flight: {}/{} tools reported", count, total),
+        "reason": format!("Pre-flight: {}/{} tools reported", reported.len(), results.len()),
         "additionalContext": context.trim_end()
     });
 
