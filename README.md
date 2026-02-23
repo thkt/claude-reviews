@@ -1,10 +1,22 @@
 # claude-reviews
 
-Pre-flight static analysis hook for Claude Code's `/audit` command. Runs JS/TS tools (knip, oxlint, tsgo, react-doctor) and Rust tools (clippy, cargo check, cargo test, cargo-audit, cargo-machete) in parallel and injects results as `additionalContext`.
+A [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that runs static analysis tools before `/audit` and feeds the results to the audit agent as context. Instead of the agent scanning code manually, it gets real linter output, type errors, and test results upfront.
+
+## How it works
+
+```
+/audit → PreToolUse hook fires → reviews binary runs
+  ├─ Detects project type (package.json, Cargo.toml, etc.)
+  ├─ Runs applicable tools in parallel (OS threads)
+  └─ Returns JSON with tool output as additionalContext
+        → Audit agent sees real static analysis results
+```
+
+The hook is **advisory-only**: it always approves the tool call and never blocks `/audit`. Tool failures or missing tools are silently skipped.
 
 ## Features
 
-- **Parallel execution**: All tools run simultaneously via OS threads
+- **Parallel execution**: All enabled tools run simultaneously via OS threads
 - **Fail-open design**: Errors never block the parent `/audit` command
 - **Auto-detection**: Only runs tools relevant to the project (package.json, tsconfig.json, React, Cargo.toml)
 - **Binary resolution**: Finds JS/TS tools in `node_modules/.bin` with `.git` boundary
