@@ -2,6 +2,8 @@ mod config;
 mod project;
 mod resolve;
 mod sanitize;
+#[cfg(test)]
+mod test_utils;
 mod tools;
 
 use serde::Deserialize;
@@ -19,36 +21,38 @@ struct SkillInput {
     skill: Option<String>,
 }
 
-fn parse_audit_skill(input: &str) -> Option<()> {
-    let hook: HookInput = serde_json::from_str(input).ok()?;
-    let skill = hook.tool_input.skill.as_deref()?;
-    if skill == "audit" { Some(()) } else { None }
+fn is_audit_skill(input: &str) -> bool {
+    let Ok(hook) = serde_json::from_str::<HookInput>(input) else {
+        return false;
+    };
+    hook.tool_input.skill.as_deref() == Some("audit")
 }
 
 fn build_output(results: &[tools::ToolResult]) -> Option<String> {
-    let successful: Vec<_> = results
+    if results.is_empty() {
+        return None;
+    }
+
+    let reported: Vec<_> = results
         .iter()
         .filter(|r| r.success && !r.output.is_empty())
         .collect();
 
-    if successful.is_empty() {
-        return None;
-    }
-
     let total = results.len();
-    let reported = successful.len();
+    let count = reported.len();
 
     let mut context = String::from("# Pre-flight Analysis Results\n\n");
-    for result in &successful {
+    for result in &reported {
         context.push_str(&format!(
             "## {}\n\n```\n{}\n```\n\n",
             result.name, result.output
         ));
     }
 
+    // Advisory-only: always approve, inject tool output as context
     let output = serde_json::json!({
         "decision": "approve",
-        "reason": format!("Pre-flight: {}/{} tools reported", reported, total),
+        "reason": format!("Pre-flight: {}/{} tools reported", count, total),
         "additionalContext": context.trim_end()
     });
 
@@ -58,25 +62,25 @@ fn build_output(results: &[tools::ToolResult]) -> Option<String> {
 fn main() {
     let mut input_str = String::new();
     let bytes_read = match io::stdin()
-        .take(MAX_INPUT_SIZE as u64)
+        .take((MAX_INPUT_SIZE + 1) as u64)
         .read_to_string(&mut input_str)
     {
         Ok(n) => n,
         Err(e) => {
             eprintln!("reviews: stdin read error: {}", e);
-            return;
+            std::process::exit(1);
         }
     };
 
-    if bytes_read == MAX_INPUT_SIZE {
+    if bytes_read > MAX_INPUT_SIZE {
         eprintln!(
-            "reviews: error: input too large (>={}B limit)",
+            "reviews: error: input too large (>{}B limit)",
             MAX_INPUT_SIZE
         );
-        return;
+        std::process::exit(1);
     }
 
-    if parse_audit_skill(&input_str).is_none() {
+    if !is_audit_skill(&input_str) {
         return;
     }
 
@@ -84,7 +88,7 @@ fn main() {
         Ok(d) => d,
         Err(e) => {
             eprintln!("reviews: cannot determine cwd: {}", e);
-            return;
+            std::process::exit(1);
         }
     };
     let config = config::Config::load(&cwd);
@@ -110,6 +114,7 @@ fn run_tools_parallel(
     use std::thread;
 
     let runners: Vec<(bool, &'static str, ToolRunFn)> = vec![
+        // JS/TS tools
         (config.tools.knip, "knip", tools::knip::run),
         (config.tools.oxlint, "oxlint", tools::oxlint::run),
         (config.tools.tsgo, "tsgo", tools::tsgo::run),
@@ -118,6 +123,20 @@ fn run_tools_parallel(
             "react-doctor",
             tools::react_doctor::run,
         ),
+        // Rust tools
+        (config.tools.clippy, "clippy", tools::clippy::run),
+        (
+            config.tools.cargo_check,
+            "check",
+            tools::cargo_check::run,
+        ),
+        (
+            config.tools.cargo_test,
+            "test",
+            tools::cargo_test::run,
+        ),
+        (config.tools.audit, "audit", tools::audit::run),
+        (config.tools.machete, "machete", tools::machete::run),
     ];
 
     let handles: Vec<_> = runners
@@ -146,33 +165,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_audit_skill_valid() {
+    fn is_audit_skill_valid() {
         let input = r#"{"tool_name": "Skill", "tool_input": {"skill": "audit"}}"#;
-        assert!(parse_audit_skill(input).is_some());
+        assert!(is_audit_skill(input));
     }
 
     #[test]
-    fn parse_audit_skill_invalid_json() {
-        assert!(parse_audit_skill("not json{{{").is_none());
+    fn is_audit_skill_invalid_json() {
+        assert!(!is_audit_skill("not json{{{"));
     }
 
     #[test]
-    fn parse_audit_skill_non_audit() {
+    fn is_audit_skill_non_audit() {
         let input = r#"{"tool_name": "Skill", "tool_input": {"skill": "commit"}}"#;
-        assert!(parse_audit_skill(input).is_none());
+        assert!(!is_audit_skill(input));
     }
 
     #[test]
-    fn parse_audit_skill_null() {
+    fn is_audit_skill_null() {
         let input = r#"{"tool_name": "Skill", "tool_input": {}}"#;
-        assert!(parse_audit_skill(input).is_none());
+        assert!(!is_audit_skill(input));
     }
 
     #[test]
-    fn parse_audit_skill_with_args() {
+    fn is_audit_skill_with_args() {
         let input =
             r#"{"tool_name": "Skill", "tool_input": {"skill": "audit", "args": "--verbose"}}"#;
-        assert!(parse_audit_skill(input).is_some());
+        assert!(is_audit_skill(input));
     }
 
     #[test]
@@ -210,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn build_output_no_results() {
+    fn build_output_all_failed() {
         let results = vec![
             tools::ToolResult {
                 name: "knip",
@@ -223,7 +242,10 @@ mod tests {
                 success: false,
             },
         ];
-        assert!(build_output(&results).is_none());
+        let json = build_output(&results).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["decision"], "approve");
+        assert!(parsed["reason"].as_str().unwrap().contains("0/2"));
     }
 
     #[test]

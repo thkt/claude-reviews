@@ -1,11 +1,14 @@
 use std::path::{Path, PathBuf};
 
+const MAX_TRAVERSAL_DEPTH: usize = 20;
+
 #[derive(Debug, Clone)]
 pub struct ProjectInfo {
     pub root: PathBuf,
     pub has_package_json: bool,
     pub has_tsconfig: bool,
     pub has_react: bool,
+    pub has_cargo_toml: bool,
 }
 
 impl ProjectInfo {
@@ -14,22 +17,29 @@ impl ProjectInfo {
         let has_package_json = root.join("package.json").exists();
         let has_tsconfig = root.join("tsconfig.json").exists();
         let has_react = has_package_json && Self::detect_react(&root);
+        let has_cargo_toml = root.join("Cargo.toml").exists();
 
         Self {
             root,
             has_package_json,
             has_tsconfig,
             has_react,
+            has_cargo_toml,
         }
     }
 
     fn find_root(start: &Path) -> PathBuf {
         let mut dir = Some(start.to_path_buf());
+        let mut depth = 0;
         while let Some(d) = dir {
+            if depth >= MAX_TRAVERSAL_DEPTH {
+                break;
+            }
             if d.join(".git").exists() {
                 return d;
             }
             dir = d.parent().map(|p| p.to_path_buf());
+            depth += 1;
         }
         start.to_path_buf()
     }
@@ -59,18 +69,8 @@ impl ProjectInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::make_temp_dir;
     use std::fs;
-
-    fn make_temp_dir(prefix: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "claude-reviews-test-{}-{}",
-            prefix,
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
 
     #[test]
     fn detects_package_json() {
@@ -155,6 +155,33 @@ mod tests {
 
         let info = ProjectInfo::detect(&tmp);
         assert!(info.has_react);
+
+        fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn detects_cargo_toml() {
+        let tmp = make_temp_dir("project-cargo");
+        fs::create_dir_all(tmp.join(".git")).unwrap();
+        fs::write(
+            tmp.join("Cargo.toml"),
+            "[package]\nname = \"test\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let info = ProjectInfo::detect(&tmp);
+        assert!(info.has_cargo_toml);
+
+        fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn no_cargo_toml() {
+        let tmp = make_temp_dir("project-nocargo");
+        fs::create_dir_all(tmp.join(".git")).unwrap();
+
+        let info = ProjectInfo::detect(&tmp);
+        assert!(!info.has_cargo_toml);
 
         fs::remove_dir_all(&tmp).unwrap();
     }

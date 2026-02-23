@@ -1,7 +1,6 @@
-use super::{ToolResult, combine_output};
+use super::ToolResult;
 use crate::project::ProjectInfo;
 use crate::resolve;
-use std::process::Command;
 
 pub fn run(project: &ProjectInfo) -> ToolResult {
     if !project.has_package_json {
@@ -9,22 +8,10 @@ pub fn run(project: &ProjectInfo) -> ToolResult {
     }
 
     let bin = resolve::resolve_bin("knip", &project.root);
-
-    let output = match Command::new(&bin)
-        .args(["--reporter", "json", "--no-exit-code"])
-        .current_dir(&project.root)
-        .output()
-    {
-        Ok(o) => o,
-        Err(e) => {
-            eprintln!("reviews: knip: {}", e);
-            return ToolResult::skipped("knip");
-        }
-    };
-
-    ToolResult {
-        name: "knip",
-        output: combine_output(&output),
-        success: output.status.success(),
-    }
+    super::run_js_command(
+        "knip",
+        &bin,
+        &["--reporter", "json", "--no-exit-code"],
+        project,
+    )
 }

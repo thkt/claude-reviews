@@ -13,6 +13,7 @@ pub fn resolve_bin(name: &str, start: &Path) -> PathBuf {
 
         let candidate = d.join("node_modules/.bin").join(name);
         if candidate.exists() {
+            eprintln!("reviews: resolved {} -> {}", name, candidate.display());
             return candidate;
         }
 
@@ -30,18 +31,8 @@ pub fn resolve_bin(name: &str, start: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::make_temp_dir;
     use std::fs;
-
-    fn make_temp_dir(prefix: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "claude-reviews-test-{}-{}",
-            prefix,
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
 
     #[test]
     fn finds_bin_in_node_modules() {

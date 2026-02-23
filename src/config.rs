@@ -1,18 +1,54 @@
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
+const CONFIG_FILE: &str = ".claude-reviews.json";
+const MAX_TRAVERSAL_DEPTH: usize = 20;
+
+macro_rules! define_tools {
+    ($($field:ident $(=> $rename:literal)?),+ $(,)?) => {
+        #[derive(Debug, Clone)]
+        pub struct ToolsConfig {
+            $(pub $field: bool,)+
+        }
+
+        impl Default for ToolsConfig {
+            fn default() -> Self {
+                Self { $($field: true,)+ }
+            }
+        }
+
+        #[derive(Debug, Deserialize)]
+        struct ProjectToolsConfig {
+            $(
+                $(#[serde(rename = $rename)])?
+                $field: Option<bool>,
+            )+
+        }
+
+        impl ToolsConfig {
+            fn apply(&mut self, overrides: &ProjectToolsConfig) {
+                $(if let Some(v) = overrides.$field { self.$field = v; })+
+            }
+        }
+    };
+}
+
+define_tools! {
+    knip,
+    oxlint,
+    tsgo,
+    react_doctor,
+    clippy,
+    cargo_check => "cargoCheck",
+    cargo_test => "cargoTest",
+    audit,
+    machete,
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub enabled: bool,
     pub tools: ToolsConfig,
-}
-
-#[derive(Debug, Clone)]
-pub struct ToolsConfig {
-    pub knip: bool,
-    pub oxlint: bool,
-    pub tsgo: bool,
-    pub react_doctor: bool,
 }
 
 impl Default for Config {
@@ -24,35 +60,13 @@ impl Default for Config {
     }
 }
 
-impl Default for ToolsConfig {
-    fn default() -> Self {
-        Self {
-            knip: true,
-            oxlint: true,
-            tsgo: true,
-            react_doctor: true,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize)]
 struct ProjectConfig {
     enabled: Option<bool>,
     tools: Option<ProjectToolsConfig>,
 }
 
-#[derive(Debug, Deserialize)]
-struct ProjectToolsConfig {
-    knip: Option<bool>,
-    oxlint: Option<bool>,
-    tsgo: Option<bool>,
-    react_doctor: Option<bool>,
-}
-
-const CONFIG_FILE: &str = ".claude-reviews.json";
-
 impl Config {
-    /// Load config by searching from `start` up to .git root.
     pub fn load(start: &Path) -> Self {
         let default = Self::default();
         let Some(config_path) = Self::find_config(start) else {
@@ -63,7 +77,11 @@ impl Config {
 
     fn find_config(start: &Path) -> Option<PathBuf> {
         let mut dir = Some(start.to_path_buf());
+        let mut depth = 0;
         while let Some(d) = dir {
+            if depth >= MAX_TRAVERSAL_DEPTH {
+                break;
+            }
             let candidate = d.join(CONFIG_FILE);
             if candidate.exists() {
                 return Some(candidate);
@@ -72,6 +90,7 @@ impl Config {
                 break;
             }
             dir = d.parent().map(|p| p.to_path_buf());
+            depth += 1;
         }
         None
     }
@@ -98,19 +117,8 @@ impl Config {
         if let Some(enabled) = project.enabled {
             self.enabled = enabled;
         }
-        if let Some(tools) = project.tools {
-            if let Some(v) = tools.knip {
-                self.tools.knip = v;
-            }
-            if let Some(v) = tools.oxlint {
-                self.tools.oxlint = v;
-            }
-            if let Some(v) = tools.tsgo {
-                self.tools.tsgo = v;
-            }
-            if let Some(v) = tools.react_doctor {
-                self.tools.react_doctor = v;
-            }
+        if let Some(ref tools) = project.tools {
+            self.tools.apply(tools);
         }
         self
     }
@@ -119,18 +127,8 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::make_temp_dir;
     use std::fs;
-
-    fn make_temp_dir(prefix: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "claude-reviews-test-{}-{}",
-            prefix,
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
 
     #[test]
     fn default_config_all_tools_enabled() {
@@ -143,6 +141,11 @@ mod tests {
         assert!(config.tools.oxlint);
         assert!(config.tools.tsgo);
         assert!(config.tools.react_doctor);
+        assert!(config.tools.clippy);
+        assert!(config.tools.cargo_check);
+        assert!(config.tools.cargo_test);
+        assert!(config.tools.audit);
+        assert!(config.tools.machete);
 
         fs::remove_dir_all(&tmp).unwrap();
     }
