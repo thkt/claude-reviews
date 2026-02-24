@@ -11,9 +11,10 @@ pub struct ProjectInfo {
 impl ProjectInfo {
     pub fn detect(dir: &Path) -> Self {
         let root = Self::find_root(dir);
-        let has_package_json = root.join("package.json").exists();
         let has_tsconfig = root.join("tsconfig.json").exists();
-        let has_react = has_package_json && Self::detect_react(&root);
+        let pkg_json = Self::read_package_json(&root);
+        let has_package_json = pkg_json.is_some();
+        let has_react = pkg_json.as_ref().is_some_and(Self::has_react_dep);
 
         Self {
             root,
@@ -30,23 +31,22 @@ impl ProjectInfo {
         .unwrap_or_else(|| start.to_path_buf())
     }
 
-    fn detect_react(root: &Path) -> bool {
+    fn read_package_json(root: &Path) -> Option<serde_json::Value> {
         let pkg_path = root.join("package.json");
         let content = match std::fs::read_to_string(&pkg_path) {
             Ok(c) => c,
-            Err(e) => {
-                eprintln!("reviews: warning: failed to read package.json: {}", e);
-                return false;
-            }
+            Err(_) => return None,
         };
-        let json: serde_json::Value = match serde_json::from_str(&content) {
-            Ok(v) => v,
+        match serde_json::from_str(&content) {
+            Ok(v) => Some(v),
             Err(e) => {
                 eprintln!("reviews: warning: invalid package.json: {}", e);
-                return false;
+                None
             }
-        };
+        }
+    }
 
+    fn has_react_dep(json: &serde_json::Value) -> bool {
         for key in ["dependencies", "devDependencies", "peerDependencies"] {
             if let Some(deps) = json.get(key).and_then(|v| v.as_object())
                 && deps.contains_key("react")

@@ -4,13 +4,19 @@ pub mod react_doctor;
 pub mod tsgo;
 
 use crate::sanitize;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
+use std::sync::mpsc;
 use std::time::Duration;
 
 const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_OUTPUT_SIZE: usize = 102_400;
+/// Total budget for combined additionalContext across all tools
+const MAX_TOTAL_OUTPUT: usize = 204_800;
 
+// TS-001: Using &'static str because all tool names are compile-time constants.
+// If dynamic tool registration is needed, change to Cow<'static, str>.
 #[derive(Debug)]
 pub struct ToolResult {
     pub name: &'static str,
@@ -31,13 +37,19 @@ impl ToolResult {
 fn combine_output(output: &Output) -> String {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let sanitized = if stdout.is_empty() {
-        sanitize::sanitize(&stderr)
-    } else if stderr.is_empty() {
-        sanitize::sanitize(&stdout)
-    } else {
-        sanitize::sanitize(&format!("{}\n{}", stdout, stderr))
-    };
+
+    let mut buf = String::with_capacity(stdout.len() + stderr.len() + 1);
+    if !stdout.is_empty() {
+        buf.push_str(&stdout);
+    }
+    if !stderr.is_empty() {
+        if !buf.is_empty() {
+            buf.push('\n');
+        }
+        buf.push_str(&stderr);
+    }
+
+    let sanitized = sanitize::sanitize(&buf);
     truncate_output(&sanitized)
 }
 
@@ -51,8 +63,37 @@ fn truncate_output(s: &str) -> String {
     }
 }
 
-fn run_with_timeout(name: &'static str, mut cmd: Command) -> ToolResult {
-    let mut child = match cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
+/// Aggregate output budget: truncate results that would exceed MAX_TOTAL_OUTPUT.
+pub fn enforce_total_budget(results: &mut [ToolResult]) {
+    let mut total = 0usize;
+    for result in results.iter_mut() {
+        total += result.output.len();
+        if total > MAX_TOTAL_OUTPUT {
+            result.output = "[omitted: total output budget exceeded]".into();
+        }
+    }
+}
+
+unsafe extern "C" {
+    fn kill(pid: i32, sig: i32) -> i32;
+}
+
+/// Kill the entire process group (child + its descendants).
+fn kill_process_group(pid: u32) {
+    // Safety: kill(-pid) sends signal to the process group led by `pid`.
+    unsafe {
+        kill(-(pid as i32), 9);
+    }
+}
+
+fn run_with_timeout_duration(
+    name: &'static str,
+    mut cmd: Command,
+    timeout: Duration,
+) -> ToolResult {
+    cmd.process_group(0);
+
+    let child = match cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("reviews: {} spawn error: {}", name, e);
@@ -60,43 +101,42 @@ fn run_with_timeout(name: &'static str, mut cmd: Command) -> ToolResult {
         }
     };
 
-    let deadline = std::time::Instant::now() + TOOL_TIMEOUT;
-    let poll_interval = Duration::from_millis(100);
+    let pid = child.id();
+    let (tx, rx) = mpsc::channel();
 
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => match child.wait_with_output() {
-                Ok(output) => {
-                    return ToolResult {
-                        name,
-                        success: output.status.success(),
-                        output: combine_output(&output),
-                    };
-                }
-                Err(e) => {
-                    eprintln!("reviews: {} output read error: {}", name, e);
-                    return ToolResult::skipped(name);
-                }
-            },
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    eprintln!(
-                        "reviews: {} timed out after {}s, killing process",
-                        name,
-                        TOOL_TIMEOUT.as_secs()
-                    );
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return ToolResult::skipped(name);
-                }
-                std::thread::sleep(poll_interval);
-            }
-            Err(e) => {
-                eprintln!("reviews: {} wait error: {}", name, e);
-                return ToolResult::skipped(name);
-            }
+    std::thread::spawn(move || {
+        let result = child.wait_with_output();
+        let _ = tx.send(result);
+    });
+
+    match rx.recv_timeout(timeout) {
+        Ok(Ok(output)) => ToolResult {
+            name,
+            success: output.status.success(),
+            output: combine_output(&output),
+        },
+        Ok(Err(e)) => {
+            eprintln!("reviews: {} output read error: {}", name, e);
+            ToolResult::skipped(name)
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            eprintln!(
+                "reviews: {} timed out after {}s, killing process group",
+                name,
+                timeout.as_secs()
+            );
+            kill_process_group(pid);
+            ToolResult::skipped(name)
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            eprintln!("reviews: {} wait thread disconnected", name);
+            ToolResult::skipped(name)
         }
     }
+}
+
+fn run_with_timeout(name: &'static str, cmd: Command) -> ToolResult {
+    run_with_timeout_duration(name, cmd, TOOL_TIMEOUT)
 }
 
 pub(crate) fn run_js_command(
@@ -191,5 +231,53 @@ mod tests {
         let result = run_with_timeout("fail-test", cmd);
         assert!(!result.success);
         assert!(result.output.contains("fail"));
+    }
+
+    #[test]
+    fn run_with_timeout_duration_kills_on_timeout() {
+        let mut cmd = Command::new("sleep");
+        cmd.arg("120");
+        let result = run_with_timeout_duration("sleep-test", cmd, Duration::from_millis(200));
+        assert!(!result.success);
+        assert!(result.output.is_empty());
+        assert_eq!(result.name, "sleep-test");
+    }
+
+    #[test]
+    fn enforce_total_budget_truncates_excess() {
+        let mut results = vec![
+            ToolResult {
+                name: "a",
+                output: "x".repeat(MAX_TOTAL_OUTPUT),
+                success: true,
+            },
+            ToolResult {
+                name: "b",
+                output: "overflow".into(),
+                success: true,
+            },
+        ];
+        enforce_total_budget(&mut results);
+        assert_eq!(results[0].output.len(), MAX_TOTAL_OUTPUT);
+        assert!(results[1].output.contains("budget exceeded"));
+    }
+
+    #[test]
+    fn enforce_total_budget_no_truncation_when_within_limit() {
+        let mut results = vec![
+            ToolResult {
+                name: "a",
+                output: "small".into(),
+                success: true,
+            },
+            ToolResult {
+                name: "b",
+                output: "also small".into(),
+                success: true,
+            },
+        ];
+        enforce_total_budget(&mut results);
+        assert_eq!(results[0].output, "small");
+        assert_eq!(results[1].output, "also small");
     }
 }

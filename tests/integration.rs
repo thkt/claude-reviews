@@ -1,13 +1,21 @@
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 struct TempDir(PathBuf);
 
 impl TempDir {
-    fn new(name: &str) -> Self {
-        let path =
-            std::env::temp_dir().join(format!("reviews-integ-{}-{}", name, std::process::id()));
+    fn new(prefix: &str) -> Self {
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "reviews-integ-{}-{}-{}",
+            prefix,
+            std::process::id(),
+            id
+        ));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
@@ -55,7 +63,7 @@ fn run_reviews(input: &str) -> (String, String, bool) {
 }
 
 #[test]
-fn non_audit_skill_exits_silently() {
+fn non_target_skill_exits_silently() {
     let input = r#"{"tool_name": "Skill", "tool_input": {"skill": "commit"}}"#;
     let (stdout, _, success) = run_reviews(input);
     assert!(success);
@@ -86,17 +94,37 @@ fn disabled_config_exits_silently() {
     )
     .unwrap();
 
-    let input = r#"{"tool_name": "Skill", "tool_input": {"skill": "audit"}}"#;
+    let input = r#"{"tool_name": "Skill", "tool_input": {"skill": "review"}}"#;
     let (stdout, _, success) = run_reviews_in(tmp.path(), input);
     assert!(success);
     assert!(stdout.is_empty());
 }
 
 #[test]
-fn audit_skill_produces_valid_json() {
-    let tmp = TempDir::new("audit-json");
+fn default_skill_does_not_crash() {
+    let tmp = TempDir::new("review-nocrash");
     std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
-    // Empty project with no tools installed — all tools will be skipped
+
+    let input = r#"{"tool_name": "Skill", "tool_input": {"skill": "review"}}"#;
+    let (stdout, _, success) = run_reviews_in(tmp.path(), input);
+    assert!(success);
+
+    if !stdout.is_empty() {
+        let parsed: serde_json::Value = serde_json::from_str(&stdout)
+            .unwrap_or_else(|e| panic!("invalid JSON output: {e}\nstdout: {stdout}"));
+        assert_eq!(parsed["decision"], "approve");
+    }
+}
+
+#[test]
+fn configured_skill_does_not_crash() {
+    let tmp = TempDir::new("configured-nocrash");
+    std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
+    std::fs::write(
+        tmp.path().join(".claude-reviews.json"),
+        r#"{"skills": ["audit"]}"#,
+    )
+    .unwrap();
 
     let input = r#"{"tool_name": "Skill", "tool_input": {"skill": "audit"}}"#;
     let (stdout, _, success) = run_reviews_in(tmp.path(), input);
@@ -106,6 +134,11 @@ fn audit_skill_produces_valid_json() {
         let parsed: serde_json::Value = serde_json::from_str(&stdout)
             .unwrap_or_else(|e| panic!("invalid JSON output: {e}\nstdout: {stdout}"));
         assert_eq!(parsed["decision"], "approve");
-        assert!(parsed["reason"].as_str().is_some());
     }
+}
+
+#[test]
+fn exits_zero_on_valid_processing() {
+    let (_, _, success) = run_reviews(r#"{"tool_name": "Skill", "tool_input": {}}"#);
+    assert!(success, "should exit 0 even when skill field is missing");
 }

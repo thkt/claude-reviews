@@ -3,8 +3,10 @@ use std::path::{Path, PathBuf};
 
 const CONFIG_FILE: &str = ".claude-reviews.json";
 
-/// Generates `ToolsConfig` (all-bool, default true) and `ProjectToolsConfig`
-/// (all Option<bool> for JSON merge). `apply()` merges overrides into defaults.
+/// Generates three items from a field list:
+/// - `ToolsConfig`: all `bool` fields (default `true`) — runtime config
+/// - `ProjectToolsConfig`: all `Option<bool>` fields — JSON deserialization target
+/// - `ToolsConfig::apply()`: merges `ProjectToolsConfig` overrides into defaults
 macro_rules! define_tools {
     ($($field:ident),+ $(,)?) => {
         #[derive(Debug, Clone)]
@@ -41,6 +43,7 @@ define_tools! {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub enabled: bool,
+    pub skills: Vec<String>,
     pub tools: ToolsConfig,
 }
 
@@ -48,6 +51,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             enabled: true,
+            skills: vec!["review".into()],
             tools: ToolsConfig::default(),
         }
     }
@@ -56,6 +60,7 @@ impl Default for Config {
 #[derive(Debug, Deserialize)]
 struct ProjectConfig {
     enabled: Option<bool>,
+    skills: Option<Vec<String>>,
     tools: Option<ProjectToolsConfig>,
 }
 
@@ -96,6 +101,9 @@ impl Config {
     fn merge(mut self, project: ProjectConfig) -> Self {
         if let Some(enabled) = project.enabled {
             self.enabled = enabled;
+        }
+        if let Some(skills) = project.skills {
+            self.skills = skills;
         }
         if let Some(ref tools) = project.tools {
             self.tools.apply(tools);
@@ -156,6 +164,29 @@ mod tests {
         let config = Config::load(&tmp);
         assert!(config.enabled);
         assert!(config.tools.knip);
+    }
+
+    #[test]
+    fn default_skills_is_review() {
+        let tmp = TempDir::new("config-skills-default");
+        fs::create_dir_all(tmp.join(".git")).unwrap();
+
+        let config = Config::load(&tmp);
+        assert_eq!(config.skills, vec!["review"]);
+    }
+
+    #[test]
+    fn skills_override_replaces_default() {
+        let tmp = TempDir::new("config-skills-override");
+        fs::create_dir_all(tmp.join(".git")).unwrap();
+        fs::write(
+            tmp.join(CONFIG_FILE),
+            r#"{"skills": ["audit", "preview"]}"#,
+        )
+        .unwrap();
+
+        let config = Config::load(&tmp);
+        assert_eq!(config.skills, vec!["audit", "preview"]);
     }
 
     #[test]

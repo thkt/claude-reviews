@@ -10,6 +10,9 @@ mod traverse;
 use serde::Deserialize;
 use std::io::{self, Read};
 use std::path::Path;
+use std::sync::LazyLock;
+
+static DEBUG: LazyLock<bool> = LazyLock::new(|| std::env::var("REVIEWS_DEBUG").is_ok());
 
 const MAX_INPUT_SIZE: usize = 10_000_000;
 
@@ -23,11 +26,9 @@ struct SkillInput {
     skill: Option<String>,
 }
 
-fn is_audit_skill(input: &str) -> bool {
-    let Ok(hook) = serde_json::from_str::<HookInput>(input) else {
-        return false;
-    };
-    hook.tool_input.skill.as_deref() == Some("audit")
+fn parse_skill_name(input: &str) -> Option<String> {
+    let hook: HookInput = serde_json::from_str(input).ok()?;
+    hook.tool_input.skill
 }
 
 fn build_output(results: &[tools::ToolResult]) -> Option<String> {
@@ -39,11 +40,12 @@ fn build_output(results: &[tools::ToolResult]) -> Option<String> {
 
     let mut context = String::from("# Pre-flight Analysis Results\n\n");
     for result in &with_output {
-        let escaped = result.output.replace("```", "` ` `");
-        context.push_str(&format!("## {}\n\n```\n{}\n```\n\n", result.name, escaped));
+        context.push_str(&format!(
+            "## {}\n\n``````\n{}\n``````\n\n",
+            result.name, result.output
+        ));
     }
 
-    // Advisory-only: always approve, inject tool output as context
     let with_issues = with_output.iter().filter(|r| !r.success).count();
     let reason = if with_issues > 0 {
         format!(
@@ -69,17 +71,37 @@ fn build_output(results: &[tools::ToolResult]) -> Option<String> {
 }
 
 fn run(input: &str, cwd: &Path) -> Option<String> {
-    if !is_audit_skill(input) {
-        return None;
+    let skill = parse_skill_name(input)?;
+    let config = config::Config::load(cwd);
+
+    if *DEBUG {
+        eprintln!("reviews: debug: skill={skill}, enabled={}, skills={:?}", config.enabled, config.skills);
     }
 
-    let config = config::Config::load(cwd);
-    if !config.enabled {
+    if !config.enabled || !config.skills.contains(&skill) {
         return None;
     }
 
     let project = project::ProjectInfo::detect(cwd);
-    let results = run_tools_parallel(&config, &project);
+
+    if *DEBUG {
+        eprintln!(
+            "reviews: debug: root={}, pkg={}, ts={}, react={}",
+            project.root.display(),
+            project.has_package_json,
+            project.has_tsconfig,
+            project.has_react
+        );
+    }
+
+    let start = std::time::Instant::now();
+    let mut results = run_tools_parallel(&config, &project);
+    tools::enforce_total_budget(&mut results);
+
+    if *DEBUG {
+        eprintln!("reviews: debug: completed in {}ms", start.elapsed().as_millis());
+    }
+
     build_output(&results)
 }
 
@@ -92,23 +114,23 @@ fn main() {
         Ok(n) => n,
         Err(e) => {
             eprintln!("reviews: stdin read error: {}", e);
-            std::process::exit(1);
+            return;
         }
     };
 
     if bytes_read > MAX_INPUT_SIZE {
         eprintln!(
-            "reviews: error: input too large (>{}B limit)",
+            "reviews: warning: input too large (>{}B limit), skipping",
             MAX_INPUT_SIZE
         );
-        std::process::exit(1);
+        return;
     }
 
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
         Err(e) => {
             eprintln!("reviews: cannot determine cwd: {}", e);
-            std::process::exit(1);
+            return;
         }
     };
 
@@ -117,37 +139,37 @@ fn main() {
     }
 }
 
-type ToolRunFn = fn(&project::ProjectInfo) -> tools::ToolResult;
-
-struct ToolEntry {
-    enabled: bool,
-    name: &'static str,
-    run: ToolRunFn,
-}
-
 fn run_tools_parallel(
     config: &config::Config,
     project: &project::ProjectInfo,
 ) -> Vec<tools::ToolResult> {
     use std::thread;
 
+    type ToolRunFn = fn(&project::ProjectInfo) -> tools::ToolResult;
+
+    struct Entry {
+        enabled: bool,
+        name: &'static str,
+        run: ToolRunFn,
+    }
+
     let entries = vec![
-        ToolEntry {
+        Entry {
             enabled: config.tools.knip,
             name: "knip",
             run: tools::knip::run,
         },
-        ToolEntry {
+        Entry {
             enabled: config.tools.oxlint,
             name: "oxlint",
             run: tools::oxlint::run,
         },
-        ToolEntry {
+        Entry {
             enabled: config.tools.tsgo,
             name: "tsgo",
             run: tools::tsgo::run,
         },
-        ToolEntry {
+        Entry {
             enabled: config.tools.react_doctor,
             name: "react-doctor",
             run: tools::react_doctor::run,
@@ -180,33 +202,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn is_audit_skill_valid() {
+    fn parse_skill_name_valid() {
         let input = r#"{"tool_name": "Skill", "tool_input": {"skill": "audit"}}"#;
-        assert!(is_audit_skill(input));
+        assert_eq!(parse_skill_name(input).as_deref(), Some("audit"));
     }
 
     #[test]
-    fn is_audit_skill_invalid_json() {
-        assert!(!is_audit_skill("not json{{{"));
+    fn parse_skill_name_invalid_json() {
+        assert!(parse_skill_name("not json{{{").is_none());
     }
 
     #[test]
-    fn is_audit_skill_non_audit() {
-        let input = r#"{"tool_name": "Skill", "tool_input": {"skill": "commit"}}"#;
-        assert!(!is_audit_skill(input));
-    }
-
-    #[test]
-    fn is_audit_skill_null() {
+    fn parse_skill_name_missing() {
         let input = r#"{"tool_name": "Skill", "tool_input": {}}"#;
-        assert!(!is_audit_skill(input));
+        assert!(parse_skill_name(input).is_none());
     }
 
     #[test]
-    fn is_audit_skill_with_args() {
+    fn parse_skill_name_with_args() {
         let input =
             r#"{"tool_name": "Skill", "tool_input": {"skill": "audit", "args": "--verbose"}}"#;
-        assert!(is_audit_skill(input));
+        assert_eq!(parse_skill_name(input).as_deref(), Some("audit"));
     }
 
     #[test]
@@ -311,5 +327,72 @@ mod tests {
         assert!(parsed["reason"].as_str().unwrap().contains("1/2"));
         let ctx = parsed["additionalContext"].as_str().unwrap();
         assert!(!ctx.contains("knip"));
+    }
+
+    #[test]
+    fn run_returns_none_for_non_matching_skill() {
+        let tmp = test_utils::TempDir::new("run-nonmatch");
+        std::fs::create_dir_all(tmp.join(".git")).unwrap();
+        let input = r#"{"tool_name": "Skill", "tool_input": {"skill": "commit"}}"#;
+        assert!(run(input, &tmp).is_none());
+    }
+
+    #[test]
+    fn run_returns_none_when_disabled() {
+        let tmp = test_utils::TempDir::new("run-disabled");
+        std::fs::create_dir_all(tmp.join(".git")).unwrap();
+        std::fs::write(
+            tmp.join(".claude-reviews.json"),
+            r#"{"enabled": false}"#,
+        )
+        .unwrap();
+        let input = r#"{"tool_name": "Skill", "tool_input": {"skill": "review"}}"#;
+        assert!(run(input, &tmp).is_none());
+    }
+
+    #[test]
+    fn run_returns_none_for_invalid_input() {
+        let tmp = test_utils::TempDir::new("run-invalid");
+        std::fs::create_dir_all(tmp.join(".git")).unwrap();
+        assert!(run("not json", &tmp).is_none());
+    }
+
+    #[test]
+    fn run_returns_none_for_skill_not_in_config() {
+        let tmp = test_utils::TempDir::new("run-notinlist");
+        std::fs::create_dir_all(tmp.join(".git")).unwrap();
+        std::fs::write(
+            tmp.join(".claude-reviews.json"),
+            r#"{"skills": ["audit"]}"#,
+        )
+        .unwrap();
+        let input = r#"{"tool_name": "Skill", "tool_input": {"skill": "review"}}"#;
+        assert!(run(input, &tmp).is_none());
+    }
+
+    #[test]
+    fn run_with_matching_skill_produces_output() {
+        let tmp = test_utils::TempDir::new("run-match");
+        std::fs::create_dir_all(tmp.join(".git")).unwrap();
+        let input = r#"{"tool_name": "Skill", "tool_input": {"skill": "review"}}"#;
+        let _ = run(input, &tmp);
+    }
+
+    #[test]
+    fn thread_panic_returns_skipped() {
+        use std::thread;
+
+        let handle = thread::spawn(|| -> tools::ToolResult {
+            panic!("simulated tool panic");
+        });
+
+        let result = match handle.join() {
+            Ok(r) => r,
+            Err(_) => tools::ToolResult::skipped("panicked-tool"),
+        };
+
+        assert!(!result.success);
+        assert!(result.output.is_empty());
+        assert_eq!(result.name, "panicked-tool");
     }
 }
