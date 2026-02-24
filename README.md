@@ -6,7 +6,7 @@ A [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that 
 
 ## How it works
 
-```
+```text
 /audit → PreToolUse hook fires → reviews binary runs
   ├─ Detects project type (package.json, tsconfig.json, React)
   ├─ Runs applicable tools in parallel (OS threads)
@@ -76,14 +76,14 @@ Add to `~/.claude/settings.json`:
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Skill",
         "hooks": [
           {
             "type": "command",
             "command": "reviews",
             "timeout": 45000
           }
-        ]
+        ],
+        "matcher": "Skill"
       }
     ]
   }

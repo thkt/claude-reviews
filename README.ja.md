@@ -6,7 +6,7 @@ Claude Code の `/audit` コマンド実行前に静的解析ツールを走ら�
 
 ## 仕組み
 
-```
+```text
 /audit → PreToolUse hook 発火 → reviews バイナリ実行
   ├─ プロジェクト種別を検出（package.json, tsconfig.json, React）
   ├─ 該当ツールを OS スレッドで並列実行
@@ -76,14 +76,14 @@ cd .. && rm -rf claude-reviews
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Skill",
         "hooks": [
           {
             "type": "command",
             "command": "reviews",
             "timeout": 45000
           }
-        ]
+        ],
+        "matcher": "Skill"
       }
     ]
   }
