@@ -2,24 +2,24 @@
 
 # claude-reviews
 
-Claude Code の `/audit` コマンド実行前に静的解析ツールを走らせ、結果を監査エージェントにコンテキストとして渡す [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks)。エージェントが手動でコードを読む代わりに、リンター出力・型エラーを事前に取得できる。
+設定されたスキル（デフォルト: `/review`）の実行前に静的解析ツールを走らせ、結果をエージェントにコンテキストとして渡す [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks)。エージェントが手動でコードを読む代わりに、リンター出力・型エラーを事前に取得できる。
 
 ## 仕組み
 
 ```text
-/audit → PreToolUse hook 発火 → reviews バイナリ実行
+/review → PreToolUse hook 発火 → reviews バイナリ実行
   ├─ プロジェクト種別を検出（package.json, tsconfig.json, React）
   ├─ 該当ツールを OS スレッドで並列実行
   └─ ツール出力を additionalContext として JSON 返却
         → 監査エージェントが実際の静的解析結果を参照
 ```
 
-hook は**アドバイザリー専用**：常にツール呼び出しを承認し、`/audit` をブロックしない。ツールの失敗や未インストールは静かにスキップされる。
+hook は**アドバイザリー専用**：常にツール呼び出しを承認し、スキルをブロックしない。ツールの失敗や未インストールは静かにスキップされる。
 
 ## 特徴
 
 - **並列実行**: 有効な全ツールを OS スレッドで同時実行
-- **フェイルオープン設計**: エラーが `/audit` をブロックしない
+- **フェイルオープン設計**: エラーがスキルをブロックしない
 - **自動検出**: プロジェクトに該当するツールのみ実行（package.json, tsconfig.json, React）
 - **バイナリ解決**: ツールを `node_modules/.bin` から `.git` 境界まで探索
 
@@ -90,10 +90,10 @@ cd .. && rm -rf claude-reviews
 }
 ```
 
-`/audit` が呼ばれると、hook は以下を実行する：
+設定されたスキルが呼ばれると（デフォルト: `/review`）、hook は以下を実行する：
 
 1. stdin から Skill ツール入力を読み取り
-2. skill が `audit` か確認（それ以外は無出力で終了）
+2. スキル名が `skills` リストに含まれるか確認（非該当は無出力で終了）
 3. プロジェクト種別を検出し、該当ツールを並列実行
 4. ツール結果を `additionalContext` として JSON 出力
 
@@ -112,11 +112,12 @@ cd .. && rm -rf claude-reviews
 
 プロジェクトルート（`.git/` の隣）に `.claude-reviews.json` を配置。全フィールド省略可 — 上書きしたい項目のみ指定。
 
-**デフォルト**（設定ファイル不要）: 全ツール有効。
+**デフォルト**（設定ファイル不要）: 全ツール有効、`/review` で発動。
 
 ```json
 {
   "enabled": true,
+  "skills": ["review"],
   "tools": {
     "knip": true,
     "oxlint": true,
@@ -127,6 +128,22 @@ cd .. && rm -rf claude-reviews
 ```
 
 ### 例
+
+**`/audit` で発動させる：**
+
+```json
+{
+  "skills": ["audit"]
+}
+```
+
+**複数スキルで発動：**
+
+```json
+{
+  "skills": ["review", "audit"]
+}
+```
 
 **特定ツールを無効化：**
 
@@ -154,10 +171,10 @@ cd .. && rm -rf claude-reviews
 
 lefthook、husky、lint-staged でコミット時に oxlint を実行している場合、reviews のチェックと重複する可能性がある。両者は目的が異なる：
 
-| ツール           | タイミング      | 目的                                         |
-| ---------------- | --------------- | -------------------------------------------- |
-| reviews (hook)   | `/audit` 実行時 | 監査エージェントに静的解析コンテキストを提供 |
-| lefthook / husky | コミット時      | コードが履歴に入る前の最終ゲート             |
+| ツール           | タイミング             | 目的                                     |
+| ---------------- | ---------------------- | ---------------------------------------- |
+| reviews (hook)   | 設定されたスキル実行時 | エージェントに静的解析コンテキストを提供 |
+| lefthook / husky | コミット時             | コードが履歴に入る前の最終ゲート         |
 
 重複するツールを reviews 側で無効化するには：
 

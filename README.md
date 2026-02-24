@@ -2,24 +2,24 @@
 
 # claude-reviews
 
-A [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that runs static analysis tools before `/audit` and feeds the results to the audit agent as context. Instead of the agent scanning code manually, it gets real linter output and type errors upfront.
+A [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that runs static analysis tools before configured skills (default: `/review`) and feeds the results to the agent as context. Instead of the agent scanning code manually, it gets real linter output and type errors upfront.
 
 ## How it works
 
 ```text
-/audit → PreToolUse hook fires → reviews binary runs
+/review → PreToolUse hook fires → reviews binary runs
   ├─ Detects project type (package.json, tsconfig.json, React)
   ├─ Runs applicable tools in parallel (OS threads)
   └─ Returns JSON with tool output as additionalContext
         → Audit agent sees real static analysis results
 ```
 
-The hook is **advisory-only**: it always approves the tool call and never blocks `/audit`. Tool failures or missing tools are silently skipped.
+The hook is **advisory-only**: it always approves the tool call and never blocks the skill. Tool failures or missing tools are silently skipped.
 
 ## Features
 
 - **Parallel execution**: All enabled tools run simultaneously via OS threads
-- **Fail-open design**: Errors never block the parent `/audit` command
+- **Fail-open design**: Errors never block the parent skill command
 - **Auto-detection**: Only runs tools relevant to the project (package.json, tsconfig.json, React)
 - **Binary resolution**: Finds tools in `node_modules/.bin` with `.git` boundary
 
@@ -90,10 +90,10 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-When `/audit` is invoked, the hook:
+When a configured skill is invoked (default: `/review`), the hook:
 
 1. Reads the Skill tool input from stdin
-2. Checks if the skill is `audit` (exits silently for other skills)
+2. Checks if the skill name matches the `skills` list (exits silently for non-matching skills)
 3. Detects project type and runs applicable tools in parallel
 4. Outputs JSON with `additionalContext` containing tool results
 
@@ -112,11 +112,12 @@ Tools are resolved from `node_modules/.bin` first, falling back to `$PATH`.
 
 Place `.claude-reviews.json` at your project root (next to `.git/`). All fields are optional — only specify what you want to override.
 
-**Defaults** (no config file needed): all tools enabled.
+**Defaults** (no config file needed): all tools enabled, activates on `/review`.
 
 ```json
 {
   "enabled": true,
+  "skills": ["review"],
   "tools": {
     "knip": true,
     "oxlint": true,
@@ -127,6 +128,22 @@ Place `.claude-reviews.json` at your project root (next to `.git/`). All fields 
 ```
 
 ### Examples
+
+**Activate on `/audit` instead of `/review`:**
+
+```json
+{
+  "skills": ["audit"]
+}
+```
+
+**Activate on multiple skills:**
+
+```json
+{
+  "skills": ["review", "audit"]
+}
+```
 
 **Disable a specific tool:**
 
@@ -154,10 +171,10 @@ The config file is found by walking up from `$CWD` to the nearest `.git` directo
 
 If you already run oxlint via lefthook, husky, or lint-staged on commit, reviews' checks may overlap. The two serve different purposes:
 
-| Tool             | When        | Purpose                                        |
-| ---------------- | ----------- | ---------------------------------------------- |
-| reviews (hook)   | On `/audit` | Provide static analysis context to audit agent |
-| lefthook / husky | On commit   | Final gate before code enters history          |
+| Tool             | When                | Purpose                                      |
+| ---------------- | ------------------- | -------------------------------------------- |
+| reviews (hook)   | On configured skill | Provide static analysis context to the agent |
+| lefthook / husky | On commit           | Final gate before code enters history        |
 
 To disable overlapping tools in reviews and rely on your commit hook instead:
 
