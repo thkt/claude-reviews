@@ -27,12 +27,12 @@ The hook is **advisory-only**: it always approves the tool call and never blocks
 
 Install the tools you want to use:
 
-| Tool                                                           | Install                                     |
-| -------------------------------------------------------------- | ------------------------------------------- |
-| [oxlint](https://oxc.rs)                                       | `npm i -g oxlint`                           |
-| [knip](https://knip.dev)                                       | `npm i -D knip` (project-local recommended) |
-| [tsgo](https://github.com/nicolo-ribaudo/tsgo)                 | `npm i -g @anthropic-ai/tsgo`               |
-| [react-doctor](https://github.com/nicolo-ribaudo/react-doctor) | `npm i -g react-doctor`                     |
+| Tool                                                      | Install                                     |
+| --------------------------------------------------------- | ------------------------------------------- |
+| [oxlint](https://oxc.rs)                                  | `npm i -g oxlint`                           |
+| [knip](https://knip.dev)                                  | `npm i -D knip` (project-local recommended) |
+| [tsgo](https://github.com/microsoft/typescript-go)        | `npm i -g @typescript/native-preview`       |
+| [react-doctor](https://github.com/millionco/react-doctor) | `npm i -g react-doctor`                     |
 
 If a tool is not installed, it is silently skipped.
 
@@ -99,12 +99,12 @@ When `/audit` is invoked, the hook:
 
 ## Tools
 
-| Tool                                                           | Condition              | Arguments                        |
-| -------------------------------------------------------------- | ---------------------- | -------------------------------- |
-| [knip](https://knip.dev)                                       | `package.json` exists  | `--reporter json --no-exit-code` |
-| [oxlint](https://oxc.rs)                                       | `package.json` exists  | `--format json .`                |
-| [tsgo](https://github.com/nicolo-ribaudo/tsgo)                 | `tsconfig.json` exists | `--noEmit`                       |
-| [react-doctor](https://github.com/nicolo-ribaudo/react-doctor) | React in dependencies  | `. --verbose`                    |
+| Tool                                                      | Condition              | Arguments                        |
+| --------------------------------------------------------- | ---------------------- | -------------------------------- |
+| [knip](https://knip.dev)                                  | `package.json` exists  | `--reporter json --no-exit-code` |
+| [oxlint](https://oxc.rs)                                  | `package.json` exists  | `--format json .`                |
+| [tsgo](https://github.com/microsoft/typescript-go)        | `tsconfig.json` exists | `--noEmit`                       |
+| [react-doctor](https://github.com/millionco/react-doctor) | React in dependencies  | `. --verbose`                    |
 
 Tools are resolved from `node_modules/.bin` first, falling back to `$PATH`.
 

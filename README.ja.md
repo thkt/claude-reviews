@@ -27,12 +27,12 @@ hook は**アドバイザリー専用**：常にツール呼び出しを承認�
 
 使いたいツールをインストール：
 
-| ツール                                                         | インストール                                |
-| -------------------------------------------------------------- | ------------------------------------------- |
-| [oxlint](https://oxc.rs)                                       | `npm i -g oxlint`                           |
-| [knip](https://knip.dev)                                       | `npm i -D knip`（プロジェクトローカル推奨） |
-| [tsgo](https://github.com/nicolo-ribaudo/tsgo)                 | `npm i -g @anthropic-ai/tsgo`               |
-| [react-doctor](https://github.com/nicolo-ribaudo/react-doctor) | `npm i -g react-doctor`                     |
+| ツール                                                    | インストール                                |
+| --------------------------------------------------------- | ------------------------------------------- |
+| [oxlint](https://oxc.rs)                                  | `npm i -g oxlint`                           |
+| [knip](https://knip.dev)                                  | `npm i -D knip`（プロジェクトローカル推奨） |
+| [tsgo](https://github.com/microsoft/typescript-go)        | `npm i -g @typescript/native-preview`       |
+| [react-doctor](https://github.com/millionco/react-doctor) | `npm i -g react-doctor`                     |
 
 未インストールのツールは静かにスキップされる。
 
@@ -99,12 +99,12 @@ cd .. && rm -rf claude-reviews
 
 ## ツール
 
-| ツール                                                         | 条件                   | 引数                             |
-| -------------------------------------------------------------- | ---------------------- | -------------------------------- |
-| [knip](https://knip.dev)                                       | `package.json` あり    | `--reporter json --no-exit-code` |
-| [oxlint](https://oxc.rs)                                       | `package.json` あり    | `--format json .`                |
-| [tsgo](https://github.com/nicolo-ribaudo/tsgo)                 | `tsconfig.json` あり   | `--noEmit`                       |
-| [react-doctor](https://github.com/nicolo-ribaudo/react-doctor) | React が依存関係に存在 | `. --verbose`                    |
+| ツール                                                    | 条件                   | 引数                             |
+| --------------------------------------------------------- | ---------------------- | -------------------------------- |
+| [knip](https://knip.dev)                                  | `package.json` あり    | `--reporter json --no-exit-code` |
+| [oxlint](https://oxc.rs)                                  | `package.json` あり    | `--format json .`                |
+| [tsgo](https://github.com/microsoft/typescript-go)        | `tsconfig.json` あり   | `--noEmit`                       |
+| [react-doctor](https://github.com/millionco/react-doctor) | React が依存関係に存在 | `. --verbose`                    |
 
 ツールはまず `node_modules/.bin` から解決し、見つからなければ `$PATH` にフォールバック。
 
