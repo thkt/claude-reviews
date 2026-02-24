@@ -1,4 +1,7 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub struct TempDir {
     path: PathBuf,
@@ -6,10 +9,12 @@ pub struct TempDir {
 
 impl TempDir {
     pub fn new(prefix: &str) -> Self {
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "claude-reviews-test-{}-{}",
+            "claude-reviews-test-{}-{}-{}",
             prefix,
-            std::process::id()
+            std::process::id(),
+            id
         ));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();

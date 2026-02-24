@@ -28,7 +28,6 @@ mod tests {
             has_package_json: false,
             has_tsconfig: false,
             has_react: false,
-            has_cargo_toml: false,
         };
         let result = run(&info);
         assert!(!result.success);

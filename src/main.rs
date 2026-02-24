@@ -9,6 +9,7 @@ mod traverse;
 
 use serde::Deserialize;
 use std::io::{self, Read};
+use std::path::Path;
 
 const MAX_INPUT_SIZE: usize = 10_000_000;
 
@@ -34,32 +35,27 @@ fn build_output(results: &[tools::ToolResult]) -> Option<String> {
         return None;
     }
 
-    let reported: Vec<_> = results
-        .iter()
-        .filter(|r| !r.output.is_empty())
-        .collect();
+    let with_output: Vec<_> = results.iter().filter(|r| !r.output.is_empty()).collect();
 
     let mut context = String::from("# Pre-flight Analysis Results\n\n");
-    for result in &reported {
-        context.push_str(&format!(
-            "## {}\n\n```\n{}\n```\n\n",
-            result.name, result.output
-        ));
+    for result in &with_output {
+        let escaped = result.output.replace("```", "` ` `");
+        context.push_str(&format!("## {}\n\n```\n{}\n```\n\n", result.name, escaped));
     }
 
     // Advisory-only: always approve, inject tool output as context
-    let with_issues = reported.iter().filter(|r| !r.success).count();
+    let with_issues = with_output.iter().filter(|r| !r.success).count();
     let reason = if with_issues > 0 {
         format!(
             "Pre-flight: {}/{} tools reported ({} with issues)",
-            reported.len(),
+            with_output.len(),
             results.len(),
             with_issues
         )
     } else {
         format!(
             "Pre-flight: {}/{} tools reported",
-            reported.len(),
+            with_output.len(),
             results.len()
         )
     };
@@ -70,6 +66,21 @@ fn build_output(results: &[tools::ToolResult]) -> Option<String> {
     });
 
     Some(output.to_string())
+}
+
+fn run(input: &str, cwd: &Path) -> Option<String> {
+    if !is_audit_skill(input) {
+        return None;
+    }
+
+    let config = config::Config::load(cwd);
+    if !config.enabled {
+        return None;
+    }
+
+    let project = project::ProjectInfo::detect(cwd);
+    let results = run_tools_parallel(&config, &project);
+    build_output(&results)
 }
 
 fn main() {
@@ -93,10 +104,6 @@ fn main() {
         std::process::exit(1);
     }
 
-    if !is_audit_skill(&input_str) {
-        return;
-    }
-
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
         Err(e) => {
@@ -104,21 +111,19 @@ fn main() {
             std::process::exit(1);
         }
     };
-    let config = config::Config::load(&cwd);
 
-    if !config.enabled {
-        return;
-    }
-
-    let project = project::ProjectInfo::detect(&cwd);
-    let results = run_tools_parallel(&config, &project);
-
-    if let Some(json) = build_output(&results) {
+    if let Some(json) = run(&input_str, &cwd) {
         println!("{}", json);
     }
 }
 
 type ToolRunFn = fn(&project::ProjectInfo) -> tools::ToolResult;
+
+struct ToolEntry {
+    enabled: bool,
+    name: &'static str,
+    run: ToolRunFn,
+}
 
 fn run_tools_parallel(
     config: &config::Config,
@@ -126,38 +131,35 @@ fn run_tools_parallel(
 ) -> Vec<tools::ToolResult> {
     use std::thread;
 
-    let runners: Vec<(bool, &'static str, ToolRunFn)> = vec![
-        // JS/TS tools
-        (config.tools.knip, "knip", tools::knip::run),
-        (config.tools.oxlint, "oxlint", tools::oxlint::run),
-        (config.tools.tsgo, "tsgo", tools::tsgo::run),
-        (
-            config.tools.react_doctor,
-            "react-doctor",
-            tools::react_doctor::run,
-        ),
-        // Rust tools
-        (config.tools.clippy, "clippy", tools::clippy::run),
-        (
-            config.tools.cargo_check,
-            "check",
-            tools::cargo_check::run,
-        ),
-        (
-            config.tools.cargo_test,
-            "test",
-            tools::cargo_test::run,
-        ),
-        (config.tools.audit, "audit", tools::audit::run),
-        (config.tools.machete, "machete", tools::machete::run),
+    let entries = vec![
+        ToolEntry {
+            enabled: config.tools.knip,
+            name: "knip",
+            run: tools::knip::run,
+        },
+        ToolEntry {
+            enabled: config.tools.oxlint,
+            name: "oxlint",
+            run: tools::oxlint::run,
+        },
+        ToolEntry {
+            enabled: config.tools.tsgo,
+            name: "tsgo",
+            run: tools::tsgo::run,
+        },
+        ToolEntry {
+            enabled: config.tools.react_doctor,
+            name: "react-doctor",
+            run: tools::react_doctor::run,
+        },
     ];
 
-    let handles: Vec<_> = runners
+    let handles: Vec<_> = entries
         .into_iter()
-        .filter(|(enabled, _, _)| *enabled)
-        .map(|(_, name, run_fn)| {
+        .filter(|e| e.enabled)
+        .map(|e| {
             let p = project.clone();
-            (name, thread::spawn(move || run_fn(&p)))
+            (e.name, thread::spawn(move || (e.run)(&p)))
         })
         .collect();
 
@@ -242,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn build_output_all_failed() {
+    fn build_output_all_empty_output() {
         let results = vec![
             tools::ToolResult {
                 name: "knip",
@@ -270,12 +272,12 @@ mod tests {
     fn build_output_includes_failed_with_output() {
         let results = vec![
             tools::ToolResult {
-                name: "clippy",
+                name: "oxlint",
                 output: "warning: unused variable".into(),
                 success: false,
             },
             tools::ToolResult {
-                name: "test",
+                name: "knip",
                 output: String::new(),
                 success: false,
             },
@@ -286,7 +288,7 @@ mod tests {
         assert!(reason.contains("1/2"));
         assert!(reason.contains("1 with issues"));
         let ctx = parsed["additionalContext"].as_str().unwrap();
-        assert!(ctx.contains("clippy"));
+        assert!(ctx.contains("oxlint"));
         assert!(ctx.contains("warning: unused variable"));
     }
 

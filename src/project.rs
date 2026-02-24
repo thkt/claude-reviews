@@ -6,7 +6,6 @@ pub struct ProjectInfo {
     pub has_package_json: bool,
     pub has_tsconfig: bool,
     pub has_react: bool,
-    pub has_cargo_toml: bool,
 }
 
 impl ProjectInfo {
@@ -15,14 +14,12 @@ impl ProjectInfo {
         let has_package_json = root.join("package.json").exists();
         let has_tsconfig = root.join("tsconfig.json").exists();
         let has_react = has_package_json && Self::detect_react(&root);
-        let has_cargo_toml = root.join("Cargo.toml").exists();
 
         Self {
             root,
             has_package_json,
             has_tsconfig,
             has_react,
-            has_cargo_toml,
         }
     }
 
@@ -37,11 +34,17 @@ impl ProjectInfo {
         let pkg_path = root.join("package.json");
         let content = match std::fs::read_to_string(&pkg_path) {
             Ok(c) => c,
-            Err(_) => return false,
+            Err(e) => {
+                eprintln!("reviews: warning: failed to read package.json: {}", e);
+                return false;
+            }
         };
         let json: serde_json::Value = match serde_json::from_str(&content) {
             Ok(v) => v,
-            Err(_) => return false,
+            Err(e) => {
+                eprintln!("reviews: warning: invalid package.json: {}", e);
+                return false;
+            }
         };
 
         for key in ["dependencies", "devDependencies", "peerDependencies"] {
@@ -134,29 +137,6 @@ mod tests {
 
         let info = ProjectInfo::detect(&tmp);
         assert!(info.has_react);
-    }
-
-    #[test]
-    fn detects_cargo_toml() {
-        let tmp = TempDir::new("project-cargo");
-        fs::create_dir_all(tmp.join(".git")).unwrap();
-        fs::write(
-            tmp.join("Cargo.toml"),
-            "[package]\nname = \"test\"\nversion = \"0.1.0\"\n",
-        )
-        .unwrap();
-
-        let info = ProjectInfo::detect(&tmp);
-        assert!(info.has_cargo_toml);
-    }
-
-    #[test]
-    fn no_cargo_toml() {
-        let tmp = TempDir::new("project-nocargo");
-        fs::create_dir_all(tmp.join(".git")).unwrap();
-
-        let info = ProjectInfo::detect(&tmp);
-        assert!(!info.has_cargo_toml);
     }
 
     #[test]

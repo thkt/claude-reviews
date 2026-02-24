@@ -3,8 +3,10 @@ use std::path::{Path, PathBuf};
 
 const CONFIG_FILE: &str = ".claude-reviews.json";
 
+/// Generates `ToolsConfig` (all-bool, default true) and `ProjectToolsConfig`
+/// (all Option<bool> for JSON merge). `apply()` merges overrides into defaults.
 macro_rules! define_tools {
-    ($($field:ident $(=> $rename:literal)?),+ $(,)?) => {
+    ($($field:ident),+ $(,)?) => {
         #[derive(Debug, Clone)]
         pub struct ToolsConfig {
             $(pub $field: bool,)+
@@ -18,10 +20,7 @@ macro_rules! define_tools {
 
         #[derive(Debug, Deserialize)]
         struct ProjectToolsConfig {
-            $(
-                $(#[serde(rename = $rename)])?
-                $field: Option<bool>,
-            )+
+            $($field: Option<bool>,)+
         }
 
         impl ToolsConfig {
@@ -37,11 +36,6 @@ define_tools! {
     oxlint,
     tsgo,
     react_doctor,
-    clippy,
-    cargo_check => "cargoCheck",
-    cargo_test => "cargoTest",
-    audit,
-    machete,
 }
 
 #[derive(Debug, Clone)]
@@ -127,11 +121,6 @@ mod tests {
         assert!(config.tools.oxlint);
         assert!(config.tools.tsgo);
         assert!(config.tools.react_doctor);
-        assert!(config.tools.clippy);
-        assert!(config.tools.cargo_check);
-        assert!(config.tools.cargo_test);
-        assert!(config.tools.audit);
-        assert!(config.tools.machete);
     }
 
     #[test]

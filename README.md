@@ -1,14 +1,14 @@
+**English** | [日本語](README.ja.md)
+
 # claude-reviews
 
-English | [日本語](README.ja.md)
-
-A [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that runs static analysis tools before `/audit` and feeds the results to the audit agent as context. Instead of the agent scanning code manually, it gets real linter output, type errors, and test results upfront.
+A [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that runs static analysis tools before `/audit` and feeds the results to the audit agent as context. Instead of the agent scanning code manually, it gets real linter output and type errors upfront.
 
 ## How it works
 
 ```
 /audit → PreToolUse hook fires → reviews binary runs
-  ├─ Detects project type (package.json, Cargo.toml, etc.)
+  ├─ Detects project type (package.json, tsconfig.json, React)
   ├─ Runs applicable tools in parallel (OS threads)
   └─ Returns JSON with tool output as additionalContext
         → Audit agent sees real static analysis results
@@ -20,8 +20,21 @@ The hook is **advisory-only**: it always approves the tool call and never blocks
 
 - **Parallel execution**: All enabled tools run simultaneously via OS threads
 - **Fail-open design**: Errors never block the parent `/audit` command
-- **Auto-detection**: Only runs tools relevant to the project (package.json, tsconfig.json, React, Cargo.toml)
-- **Binary resolution**: Finds JS/TS tools in `node_modules/.bin` with `.git` boundary
+- **Auto-detection**: Only runs tools relevant to the project (package.json, tsconfig.json, React)
+- **Binary resolution**: Finds tools in `node_modules/.bin` with `.git` boundary
+
+## Requirements
+
+Install the tools you want to use:
+
+| Tool                                                           | Install                                     |
+| -------------------------------------------------------------- | ------------------------------------------- |
+| [oxlint](https://oxc.rs)                                       | `npm i -g oxlint`                           |
+| [knip](https://knip.dev)                                       | `npm i -D knip` (project-local recommended) |
+| [tsgo](https://github.com/nicolo-ribaudo/tsgo)                 | `npm i -g @anthropic-ai/tsgo`               |
+| [react-doctor](https://github.com/nicolo-ribaudo/react-doctor) | `npm i -g react-doctor`                     |
+
+If a tool is not installed, it is silently skipped.
 
 ## Installation
 
@@ -42,6 +55,8 @@ mv reviews ~/.local/bin/
 ```
 
 ### From Source
+
+> **Note**: Do not clone into your project directory. The cloned repository will remain as a nested git repo and may interfere with your project's git operations.
 
 ```bash
 cd /tmp
@@ -84,8 +99,6 @@ When `/audit` is invoked, the hook:
 
 ## Tools
 
-### JS/TS
-
 | Tool                                                           | Condition              | Arguments                        |
 | -------------------------------------------------------------- | ---------------------- | -------------------------------- |
 | [knip](https://knip.dev)                                       | `package.json` exists  | `--reporter json --no-exit-code` |
@@ -93,21 +106,7 @@ When `/audit` is invoked, the hook:
 | [tsgo](https://github.com/nicolo-ribaudo/tsgo)                 | `tsconfig.json` exists | `--noEmit`                       |
 | [react-doctor](https://github.com/nicolo-ribaudo/react-doctor) | React in dependencies  | `. --verbose`                    |
 
-JS/TS tools are resolved from `node_modules/.bin` first, falling back to `$PATH`.
-
-### Rust
-
-| Tool                                                     | Condition                       | Arguments                                         |
-| -------------------------------------------------------- | ------------------------------- | ------------------------------------------------- |
-| [clippy](https://doc.rust-lang.org/clippy/)              | `Cargo.toml` exists             | `clippy --message-format=short -- -W clippy::all` |
-| cargo check                                              | `Cargo.toml` exists             | `check --message-format=short`                    |
-| cargo test                                               | `Cargo.toml` exists             | `test --no-fail-fast`                             |
-| [cargo-audit](https://rustsec.org)                       | `Cargo.toml` exists + installed | `audit`                                           |
-| [cargo-machete](https://github.com/bnjbvr/cargo-machete) | `Cargo.toml` exists + installed | `machete`                                         |
-
-cargo-audit and cargo-machete require separate installation (`cargo install cargo-audit cargo-machete`).
-
-If a tool is not installed, it is silently skipped.
+Tools are resolved from `node_modules/.bin` first, falling back to `$PATH`.
 
 ## Configuration
 
@@ -122,12 +121,7 @@ Place `.claude-reviews.json` at your project root (next to `.git/`). All fields 
     "knip": true,
     "oxlint": true,
     "tsgo": true,
-    "react_doctor": true,
-    "clippy": true,
-    "cargoCheck": true,
-    "cargoTest": true,
-    "audit": true,
-    "machete": true
+    "react_doctor": true
   }
 }
 ```
@@ -154,7 +148,26 @@ Place `.claude-reviews.json` at your project root (next to `.git/`). All fields 
 
 ### Config Resolution
 
-The config file is found by walking up from `$CWD` to the nearest `.git` directory.
+The config file is found by walking up from `$CWD` to the nearest `.git` directory. If `.claude-reviews.json` exists there, it is loaded and merged with defaults.
+
+## Using with Existing Linters
+
+If you already run oxlint via lefthook, husky, or lint-staged on commit, reviews' checks may overlap. The two serve different purposes:
+
+| Tool             | When        | Purpose                                        |
+| ---------------- | ----------- | ---------------------------------------------- |
+| reviews (hook)   | On `/audit` | Provide static analysis context to audit agent |
+| lefthook / husky | On commit   | Final gate before code enters history          |
+
+To disable overlapping tools in reviews and rely on your commit hook instead:
+
+```json
+{
+  "tools": {
+    "oxlint": false
+  }
+}
+```
 
 ## License
 

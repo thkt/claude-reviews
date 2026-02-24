@@ -1,9 +1,4 @@
-pub mod audit;
-pub mod cargo_check;
-pub mod cargo_test;
-pub mod clippy;
 pub mod knip;
-pub mod machete;
 pub mod oxlint;
 pub mod react_doctor;
 pub mod tsgo;
@@ -33,7 +28,7 @@ impl ToolResult {
     }
 }
 
-pub fn combine_output(output: &Output) -> String {
+fn combine_output(output: &Output) -> String {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let sanitized = if stdout.is_empty() {
@@ -104,16 +99,6 @@ fn run_with_timeout(name: &'static str, mut cmd: Command) -> ToolResult {
     }
 }
 
-pub(crate) fn run_cargo_command(
-    name: &'static str,
-    args: &[&str],
-    info: &crate::project::ProjectInfo,
-) -> ToolResult {
-    let mut cmd = Command::new("cargo");
-    cmd.args(args).current_dir(&info.root);
-    run_with_timeout(name, cmd)
-}
-
 pub(crate) fn run_js_command(
     name: &'static str,
     bin: &Path,
@@ -123,17 +108,6 @@ pub(crate) fn run_js_command(
     let mut cmd = Command::new(bin);
     cmd.args(args).current_dir(&info.root);
     run_with_timeout(name, cmd)
-}
-
-pub(crate) fn is_command_available(command: &str) -> bool {
-    Command::new("sh")
-        .arg("-c")
-        .arg("command -v \"$0\"")
-        .arg(command)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
 }
 
 #[cfg(test)]
@@ -217,15 +191,5 @@ mod tests {
         let result = run_with_timeout("fail-test", cmd);
         assert!(!result.success);
         assert!(result.output.contains("fail"));
-    }
-
-    #[test]
-    fn is_command_available_for_existing() {
-        assert!(is_command_available("sh"));
-    }
-
-    #[test]
-    fn is_command_available_for_missing() {
-        assert!(!is_command_available("nonexistent-tool-xyz-99999"));
     }
 }
